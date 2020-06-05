@@ -1,0 +1,218 @@
+#!/bin/sh
+
+# The MIT License (MIT)
+#
+# Copyright (c) 2015-2017 Susam Pal
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+VERSION=0.2.0
+
+COPYRIGHT="Copyright (c) 2015-2017 Susam Pal"
+
+LICENSE_URL="http://susam.in/licenses/mit/"
+SUPPORT_URL="https://github.com/susam/inwee/issues"
+
+NOTICE="
+This is free and open source software. You can use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of it,
+under the terms of the MIT License. You can obtain a copy of the
+MIT License at <$LICENSE_URL>.
+
+This software is provided \"AS IS\", WITHOUT WARRANTY OF ANY KIND,
+express or implied. See the MIT License for details."
+
+NAME=${0##*/}
+
+
+# Starting point of this script.
+#
+# Arguments:
+#   arg...: All arguments this script was invoked with
+main()
+{
+    parse_arguments "$@"
+
+    if [ -n "$fifo_path" ]
+    then
+        # Find FIFO path via the -f|--fifo argument.
+        if [ -e "$fifo_path" ]
+        then
+            debug_output Found FIFO socket on custom argument.
+            fifo="$fifo_path"
+        else
+            quit Cannot find specified FIFO path.
+        fi
+    else
+        # Find FIFO pipe in ~/.weechat.
+        for f in ~/.weechat/weechat_fifo*
+        do
+            if [ "$f" != ~/.weechat/weechat_fifo"*" ]
+            then
+                debug_output Found FIFO socket in ~/.weechat.
+                fifo="$f"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$fifo" ]
+    then
+        quit Cannot find Weechat FIFO pipe.
+    fi
+
+    debug_output FIFO: "$fifo"
+
+    # Read from standard input if input file is not specified.
+    if [ -z "$input_file" ]
+    then
+        input_file=-
+    fi
+
+    # Skip comments and lines consisting only of whitespaces and feed
+    # the remaining lines to WeeChat's FIFO.
+    grep -v "^[[:space:]]*#" "$input_file" | grep "[[:graph:]]" |
+    while read -r line
+    do
+        debug_output READ: "$line"
+
+        line="*$line"
+        if [ -n "$buffer" ]
+        then
+            line="$buffer $line"
+        fi
+        printf "%s\n" "$line" > "$fifo"
+
+        debug_output SENT: "$line"
+    done
+}
+
+
+# Parse command line arguments passed to this script.
+#
+# Arguments:
+#   arg...: All arguments this script was invoked with
+#
+# Errors:
+#   If invalid arguments are specified, this function causes the script
+#   to exit with an error.
+parse_arguments()
+{
+    while [ "$#" -gt 0 ]
+    do
+        case $1 in
+            -b | --buffer)
+                [ -n "$2" ] || quit \""$1"\" must be followed by buffer name.
+                buffer="$2"
+                shift 2
+                ;;
+            -f | --fifo)
+                [ -n "$2" ] || quit \""$1"\" must be followed by FIFO path.
+                fifo_path="$2"
+                shift 2
+                ;;
+            -d | --debug)
+                debug=yes
+                shift
+                ;;
+            -h | --help)
+                show_help
+                exit
+                ;;
+            -v | --version)
+                show_version
+                exit
+                ;;
+            -?*)
+                quit Unknown option \""$1"\".
+                ;;
+            *)
+                if [ -z "$input_file" ]
+                then
+                    input_file="$1"
+                    shift
+                else
+                    quit Surplus argument \""$1"\".
+                fi
+        esac
+    done
+}
+
+
+# Output message only in debug mode.
+#
+# Arguments:
+#   string...: String to print to standard output stream.
+debug_output()
+{
+    if [ "$debug" = "yes" ]
+    then
+        printf "%s\n" "$*"
+    fi
+}
+
+
+# Terminate the script with an error message.
+#
+# Arguments:
+#   string...: String to print to standard error stream.
+#
+# Errors:
+#   Unconditionally cause the script to terminate with an error message
+#   and exit code 1.
+quit()
+{
+    printf "%s: %s\n" "$NAME" "$*" >&2
+    exit 1
+}
+
+
+# Show help.
+show_help()
+{
+    printf "%s\n" \
+"Usage: $NAME [-b BUFFER] [-f FIFO] [-d] [-c] [-h] [-v] [FILE]
+
+Read text or commands from standard input, FILE or from the output of a
+shell command, and send it to WeeChat's FIFO pipe. If FILE is not
+specified or if it is specified as '-', i.e. a hyphen, then text and
+commands are read from standard input.
+
+Options:
+  -b, --buffer BUFFER  Buffer to send text or command to.
+  -f, --fifo FIFO      FIFO Path to send commands to.
+  -d, --debug          Show diagnostic information.
+  -h, --help           Show this help and exit.
+  -v, --version        Show version and exit.
+
+Report bugs to <$SUPPORT_URL>."
+}
+
+
+# Show version and copyright.
+show_version()
+{
+    printf "%s %s\n%s\n%s\n" "$NAME" "$VERSION" "$COPYRIGHT" "$NOTICE"
+}
+
+
+# Start.
+main "$@"
